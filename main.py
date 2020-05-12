@@ -2,6 +2,7 @@ import cx_Oracle
 import datetime
 import argparse
 import getpass
+import os
 
 TYPE_TABLE = 'Таблица'
 TYPE_VIEW = 'Представление'
@@ -12,6 +13,14 @@ def get_connect(args):
 
     connect = cx_Oracle.connect(credentials["user"], credentials["password"], credentials["tns"])
     return connect
+
+
+def get_version(connect):
+    cursor = connect.cursor()
+    cursor.execute("""select version from product_component_version""")
+    db_ver, = cursor.fetchone()
+    db_ver = db_ver.split('.')[0]
+    return int(db_ver)
 
 
 def get_table_id(table_owner, table_name):
@@ -91,10 +100,11 @@ def gather_attrs(connect, user, tables):
 
 
 def gather_constraints(connect, user):
+
     cursor = connect.cursor()
 
     cursor.execute("""
-        select c.table_name, c.constraint_type, c.constraint_name, c.owner, search_condition_vc, 
+        select c.table_name, c.constraint_type, c.constraint_name, c.owner, search_condition, 
             r_constraint_name, index_owner, index_name
           from all_constraints c
           where c.owner = upper(:a)
@@ -153,19 +163,22 @@ def make_report_header(file, tables, schema):
 
 def make_report_footer(file, run_stats):
     file.write("<h1>Время выполнения:</h1>")
-    file.write("Начало получения метаданных: " + str(run_stats["start_gather"]))
-    file.write("<br>")
-    file.write("Окончание получения метаданных: " + str(run_stats["end_gather"]))
-    file.write("<br>")
-    file.write("Начало обработки метаданных: " + str(run_stats["start_process"]))
-    file.write("<br>")
-    file.write("Окончание обработки метаданных: " + str(run_stats["end_process"]))
-    file.write("<br>")
-    file.write("Начало формирования отчета: " + str(run_stats["start_report"]))
-    file.write("<br>")
+    file.write("<table border = 1>")
+    file.write("<tr><td>")
+    file.write("Начало получения метаданных: " + "</td><td>" + str(run_stats["start_gather"]))
+    file.write("</td></tr><tr><td>")
+    file.write("Окончание получения метаданных: " + "</td><td>" + str(run_stats["end_gather"]))
+    file.write("</td></tr><tr><td>")
+    file.write("Начало обработки метаданных: " + "</td><td>" + str(run_stats["start_process"]))
+    file.write("</td></tr><tr><td>")
+    file.write("Окончание обработки метаданных: " + "</td><td>" + str(run_stats["end_process"]))
+    file.write("</td></tr><tr><td>")
+    file.write("Начало формирования отчета: " + "</td><td>" + str(run_stats["start_report"]))
+    file.write("</td></tr><tr><td>")
     run_stats["end_report"] = datetime.datetime.now()
-    file.write("Окончание обработки отчета: " + str(run_stats["end_report"]))
-    file.write("<br>")
+    file.write("Окончание обработки отчета: " + "</td><td>" + str(run_stats["end_report"]))
+    file.write("</td></tr>")
+    file.write("</table>")
     file.write("</body>")
     file.write("</html>")
 
@@ -288,12 +301,19 @@ def main():
     connect = get_connect(args)
     target_user = args.target_user
     run_stats = {"start_gather": datetime.datetime.now()}
-    schema_info = gather_tables(connect, target_user)
-    schema_info = gather_attrs(connect, target_user, schema_info)
-    schema_constraints = gather_constraints(connect, target_user)
-    run_stats["end_gather"] = datetime.datetime.now()
-    run_stats["start_process"] = datetime.datetime.now()
-    schema_info = process_constraints(schema_info, schema_constraints)
+    try:
+        schema_info = gather_tables(connect, target_user)
+        schema_info = gather_attrs(connect, target_user, schema_info)
+        schema_constraints = gather_constraints(connect, target_user)
+        run_stats["end_gather"] = datetime.datetime.now()
+        run_stats["start_process"] = datetime.datetime.now()
+        schema_info = process_constraints(schema_info, schema_constraints)
+    except cx_Oracle.DatabaseError as exc:
+        error, = exc.args
+        print("NLS_LANG: " + os.environ.get("NLS_LANG"))
+        print("Database version : " + str(get_version(connect)))
+        print(error.message)
+        raise
     run_stats["end_process"] = datetime.datetime.now()
     make_report(schema_info, run_stats, args.file, target_user)
     if args.interactive:
