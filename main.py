@@ -31,7 +31,7 @@ def gather_tables(connect, user):
     cursor = connect.cursor()
 
     cursor.execute("""
-    select t.table_name, c.comments, t.owner
+    select t.table_name, c.comments, t.owner, t.temporary, t.iot_type, t.partitioned
       from all_tables t
       left join all_tab_comments c
         on t.owner = c.owner
@@ -42,10 +42,15 @@ def gather_tables(connect, user):
 
     tables = {}
 
-    for table_name, table_comment, table_owner in cursor:
+    for table_name, table_comment, table_owner, temporary, iot_type, partitioned in cursor:
         table_id = get_table_id(table_owner, table_name)
+        table_type = "Heap"
+        if iot_type is not None:
+            table_type = "IOT"
+        elif temporary == 'Y':
+            table_type = 'Temp'
         tables[table_id] = {"name": table_name, "comment": table_comment, "columns": {}, "type": TYPE_TABLE,
-                            "unique_indexes": []}
+                            "unique_indexes": [], "table_type": table_type, "partitioned": partitioned == 'Y'}
 
     cursor.execute("""
         select t.view_name, c.comments, t.owner
@@ -235,6 +240,10 @@ def make_report_tables(file, tables):
         file.write("<h2>" + tables[i]["name"] + "</h2>")
         file.write("Таблица: " + tables[i]["name"] + "<br>")
         file.write("Тип: " + tables[i]["type"] + "<br>")
+        if "table_type" in tables[i].keys():
+            file.write("Тип таблицы: " + str(tables[i]["table_type"]) + "<br>")
+        if "partitioned" in tables[i].keys():
+            file.write("Секционирована: " + str(tables[i]["partitioned"]) + "<br>")
         if tables[i]["comment"] is not None and len(tables[i]["comment"]) > 0:
             file.write("Описание: " + tables[i]["comment"] + "<br>")
         file.write("Столбцы:<br>")
