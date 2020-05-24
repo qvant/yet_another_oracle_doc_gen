@@ -1,11 +1,14 @@
 import cx_Oracle
 import datetime
 import argparse
+import codecs
 import getpass
 import os
+from l18n import L18n
+from messages import *
 
-TYPE_TABLE = 'Таблица'
-TYPE_VIEW = 'Представление'
+TYPE_TABLE = M_TABLE_TYPE_T
+TYPE_VIEW = M_TABLE_TYPE_W
 
 
 def get_connect(args):
@@ -44,11 +47,11 @@ def gather_tables(connect, user):
 
     for table_name, table_comment, table_owner, temporary, iot_type, partitioned in cursor:
         table_id = get_table_id(table_owner, table_name)
-        table_type = "Heap"
+        table_type = M_TABLE_TYPE_HEAP
         if iot_type is not None:
-            table_type = "IOT"
+            table_type = M_TABLE_TYPE_IOT
         elif temporary == 'Y':
-            table_type = 'Temp'
+            table_type = M_TABLE_TYPE_TEMP
         tables[table_id] = {"name": table_name, "comment": table_comment, "columns": {}, "type": TYPE_TABLE,
                             "unique_indexes": [], "table_type": table_type, "partitioned": partitioned == 'Y'}
 
@@ -156,39 +159,39 @@ def process_constraints(tables, constraints):
     return tables
 
 
-def make_report_header(file, tables, schema):
+def make_report_header(file, tables, schema, trans):
     file.write("<html>")
     file.write("<body>")
-    file.write("<h1>Схема: " + schema + "</h1>")
-    file.write("<h1>Таблицы</h1>")
+    file.write("<h1> {}: {}</h1>".format(trans.get_message(M_SCHEMA), schema))
+    file.write("<h1>{}</h1>".format(trans.get_message(M_TABLES)))
     for i in tables:
         file.write('''<a href="#''' + i + '''">''')
         file.write(tables[i]["name"] + '''</a><br>''')
 
 
-def make_report_footer(file, run_stats):
-    file.write("<h1>Время выполнения:</h1>")
+def make_report_footer(file, run_stats, trans):
+    file.write("<h1>{}:</h1>".format(trans.get_message(M_EXEC_TIME)))
     file.write("<table border = 1>")
     file.write("<tr><td>")
-    file.write("Начало получения метаданных: " + "</td><td>" + str(run_stats["start_gather"]))
+    file.write("{} </td><td>{}".format(trans.get_message(M_METADATA_GATHER_BEGIN), run_stats["start_gather"]))
     file.write("</td></tr><tr><td>")
-    file.write("Окончание получения метаданных: " + "</td><td>" + str(run_stats["end_gather"]))
+    file.write("{} </td><td>{}".format(trans.get_message(M_METADATA_GATHER_END), run_stats["end_gather"]))
     file.write("</td></tr><tr><td>")
-    file.write("Начало обработки метаданных: " + "</td><td>" + str(run_stats["start_process"]))
+    file.write("{} </td><td>{}".format(trans.get_message(M_METADATA_PROCESS_BEGIN), run_stats["start_process"]))
     file.write("</td></tr><tr><td>")
-    file.write("Окончание обработки метаданных: " + "</td><td>" + str(run_stats["end_process"]))
+    file.write("{} </td><td>{}".format(trans.get_message(M_METADATA_PROCESS_END), run_stats["end_process"]))
     file.write("</td></tr><tr><td>")
-    file.write("Начало формирования отчета: " + "</td><td>" + str(run_stats["start_report"]))
+    file.write("{} </td><td>{}".format(trans.get_message(M_REPORT_PROCESS_BEGIN), run_stats["start_report"]))
     file.write("</td></tr><tr><td>")
     run_stats["end_report"] = datetime.datetime.now()
-    file.write("Окончание обработки отчета: " + "</td><td>" + str(run_stats["end_report"]))
+    file.write("{}: </td><td>{}".format(trans.get_message(M_REPORT_PROCESS_END), run_stats["end_report"]))
     file.write("</td></tr>")
     file.write("</table>")
     file.write("</body>")
     file.write("</html>")
 
 
-def make_report_attr(file, attr):
+def make_report_attr(file, attr, trans):
     file.write("<tr>")
     file.write("<td>" + attr["name"] + "</td>")
     file.write("<td>" + attr["type"] + "</td>")
@@ -202,7 +205,7 @@ def make_report_attr(file, attr):
     else:
         file.write("<td>NULL</td>")
     if attr["primary_key"]:
-        file.write("<td>Да</td>")
+        file.write("<td>{}</td>".format(trans.translate_bool(True)))
     else:
         file.write("<td></td>")
     if "ref_table" in attr.keys():
@@ -216,7 +219,7 @@ def make_report_attr(file, attr):
     if attr["nullable"]:
         file.write("<td></td>")
     else:
-        file.write("<td>Да</td>")
+        file.write("<td>{}</td>".format(trans.translate_bool(True)))
     if attr["comment"] is not None:
         file.write("<td>" + str(attr["comment"]) + "</td>")
     else:
@@ -234,54 +237,60 @@ def make_report_index(file, index):
     file.write("</ul>")
 
 
-def make_report_tables(file, tables):
+def make_report_tables(file, tables, trans):
     for i in tables:
         file.write('''<a id="''' + i + '''"</a>''')
         file.write("<h2>" + tables[i]["name"] + "</h2>")
-        file.write("Таблица: " + tables[i]["name"] + "<br>")
-        file.write("Тип: " + tables[i]["type"] + "<br>")
+        file.write("{}: {}<br>".format(trans.get_message(M_TABLE), tables[i]["name"]))
+        file.write("{}: {}<br>".format(trans.get_message(M_TABLE_OR_VIEW), trans.get_message(tables[i]["type"])))
         if "table_type" in tables[i].keys():
-            file.write("Тип таблицы: " + str(tables[i]["table_type"]) + "<br>")
+            file.write("{}: {}<br>".format(trans.get_message(M_TABLE_CATEGORY),
+                                           trans.get_message(tables[i]["table_type"])))
         if "partitioned" in tables[i].keys():
-            file.write("Секционирована: " + str(tables[i]["partitioned"]) + "<br>")
+            file.write("{}: {}<br>".format(trans.get_message(M_IS_PARTITIONED),
+                                           trans.translate_bool(tables[i]["partitioned"])))
         if tables[i]["comment"] is not None and len(tables[i]["comment"]) > 0:
-            file.write("Описание: " + tables[i]["comment"] + "<br>")
-        file.write("Столбцы:<br>")
+            file.write("{}: {}<br>".format(trans.get_message(M_COMMENT), tables[i]["comment"]))
+        file.write("{}:<br>".format(trans.get_message(M_COLUMNS)))
         file.write("<table border = 1>")
         file.write("<tr>")
-        file.write("<td>Название</td>")
-        file.write("<td>Тип</td>")
-        file.write("<td>Длина</td>")
-        file.write("<td>Точность</td>")
-        file.write("<td>Значение по умолчанию</td>")
-        file.write("<td>PK</td>")
-        file.write("<td>FK</td>")
-        file.write("<td>Проверка</td>")
-        file.write("<td>NOT NULL</td>")
-        file.write("<td>Описание</td>")
+        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_NAME)))
+        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_TYPE)))
+        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_LENGTH)))
+        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_PRECISION)))
+        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_DEFAULT)))
+        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_PK)))
+        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_FK)))
+        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_CHECK)))
+        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_NULLABLE)))
+        file.write("<td>{}</td>".format(trans.get_message(M_COMMENT)))
         file.write("</tr>")
         for j in tables[i]["columns"]:
-            make_report_attr(file, tables[i]["columns"][j])
+            make_report_attr(file, tables[i]["columns"][j], trans)
         file.write("</table>")
         if len(tables[i]["unique_indexes"]) > 0:
             file.write('''<br>''')
-            file.write("Ограничения уникальности: <br><br>")
+            file.write("{}: <br><br>".format(trans.get_message(M_UNIQUE_CONSTRAINTS)))
             for j in tables[i]["unique_indexes"]:
                 make_report_index(file, j)
 
 
-def make_report(tables, run_stats, filename, schema):
+def make_report(tables, run_stats, filename, schema, locale):
     run_stats["start_report"] = datetime.datetime.now()
-    f = open(filename, 'w')
-    make_report_header(f, tables, schema)
-    make_report_tables(f, tables)
-    make_report_footer(f, run_stats)
+    f = codecs.open(filename, 'w', "utf-8")
+    translator = L18n()
+    translator.set_locale(locale)
+    make_report_header(f, tables, schema, translator)
+    make_report_tables(f, tables, translator)
+    make_report_footer(f, run_stats, translator)
     f.close()
 
 
 def get_settings():
     parser = argparse.ArgumentParser(description='Generate Oracle RDBMS schema description.')
     parser.add_argument("--interactive", '-i', help="Interactive workmode", action="store_true", default=False)
+    parser.add_argument("--locale", "-l", help="Localization file name, should be in l18n folder", action="store",
+                        default="english")
     parser.add_argument("--file", "-f", help="Report file", action="store")
     parser.add_argument("--user", "-u", help="User for gathering metadata", action="store")
     parser.add_argument("--password", "-p", help="Password", action="store")
@@ -309,6 +318,7 @@ def main():
     args = get_settings()
     connect = get_connect(args)
     target_user = args.target_user
+    locale = args.locale
     run_stats = {"start_gather": datetime.datetime.now()}
     try:
         schema_info = gather_tables(connect, target_user)
@@ -324,7 +334,7 @@ def main():
         print(error.message)
         raise
     run_stats["end_process"] = datetime.datetime.now()
-    make_report(schema_info, run_stats, args.file, target_user)
+    make_report(schema_info, run_stats, args.file, target_user, locale)
     if args.interactive:
         print('Job finished')
 
