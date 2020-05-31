@@ -10,11 +10,17 @@ from messages import *
 TYPE_TABLE = M_TABLE_TYPE_T
 TYPE_VIEW = M_TABLE_TYPE_W
 
+E_TABLE_NOT_EXISTS = 942
+
 
 def get_connect(args):
     credentials = {"user": args.user, "password": args.password, "tns": args.tns}
+    if args.sysdba:
+        mode = cx_Oracle.SYSDBA
+    else:
+        mode = cx_Oracle.DEFAULT_AUTH
 
-    connect = cx_Oracle.connect(credentials["user"], credentials["password"], credentials["tns"])
+    connect = cx_Oracle.connect(credentials["user"], credentials["password"], credentials["tns"], mode=mode)
     return connect
 
 
@@ -30,18 +36,36 @@ def get_table_id(table_owner, table_name):
     return table_owner + '.' + table_name
 
 
-def gather_tables(connect, user):
+def gather_tables(connect, user, use_dba):
     cursor = connect.cursor()
+    need_all = True
 
-    cursor.execute("""
-    select t.table_name, c.comments, t.owner, t.temporary, t.iot_type, t.partitioned
-      from all_tables t
-      left join all_tab_comments c
-        on t.owner = c.owner
-       and t.table_name = c.table_name
-     where t.owner = upper(:a)
-     order by t.table_name
-    """, {'a': user})
+    if use_dba:
+        try:
+            cursor.execute("""
+                select t.table_name, c.comments, t.owner, t.temporary, t.iot_type, t.partitioned
+                  from dba_tables t
+                  left join dba_tab_comments c
+                    on t.owner = c.owner
+                   and t.table_name = c.table_name
+                 where t.owner = upper(:a)
+                 order by t.table_name
+                """, {'a': user})
+            need_all = False
+        except cx_Oracle.DatabaseError as exc:
+            error, = exc.args
+            if error.code != E_TABLE_NOT_EXISTS:
+                raise
+    if need_all:
+        cursor.execute("""
+        select t.table_name, c.comments, t.owner, t.temporary, t.iot_type, t.partitioned
+          from all_tables t
+          left join all_tab_comments c
+            on t.owner = c.owner
+           and t.table_name = c.table_name
+         where t.owner = upper(:a)
+         order by t.table_name
+        """, {'a': user})
 
     tables = {}
 
@@ -54,16 +78,33 @@ def gather_tables(connect, user):
             table_type = M_TABLE_TYPE_TEMP
         tables[table_id] = {"name": table_name, "comment": table_comment, "columns": {}, "type": TYPE_TABLE,
                             "unique_indexes": [], "table_type": table_type, "partitioned": partitioned == 'Y'}
-
-    cursor.execute("""
-        select t.view_name, c.comments, t.owner
-          from all_views t
-          left join all_tab_comments c
-            on t.owner = c.owner
-           and t.view_name = c.table_name
-         where t.owner = upper(:a)
-         order by t.view_name
-        """, {'a': user})
+    need_all = True
+    if use_dba:
+        try:
+            cursor.execute("""
+                select t.view_name, c.comments, t.owner
+                  from dba_views t
+                  left join dba_tab_comments c
+                    on t.owner = c.owner
+                   and t.view_name = c.table_name
+                 where t.owner = upper(:a)
+                 order by t.view_name
+                """, {'a': user})
+            need_all = False
+        except cx_Oracle.DatabaseError as exc:
+            error, = exc.args
+            if error.code != E_TABLE_NOT_EXISTS:
+                raise
+    if need_all:
+        cursor.execute("""
+                    select t.view_name, c.comments, t.owner
+                      from all_views t
+                      left join all_tab_comments c
+                        on t.owner = c.owner
+                       and t.view_name = c.table_name
+                     where t.owner = upper(:a)
+                     order by t.view_name
+                    """, {'a': user})
 
     for table_name, table_comment, table_owner in cursor:
         table_id = get_table_id(table_owner, table_name)
@@ -73,20 +114,39 @@ def gather_tables(connect, user):
     return tables
 
 
-def gather_attrs(connect, user, tables):
+def gather_attrs(connect, user, tables, use_dba):
     cursor = connect.cursor()
-
-    cursor.execute("""
-    select t.owner, t.table_name, t.column_name, c.comments, t.owner, t.data_type, 
-        t.data_length, t.data_precision, t.data_scale, t.data_default, t.nullable
-      from all_tab_columns t
-      left join all_col_comments c
-        on t.owner = c.owner
-       and t.table_name = c.table_name
-       and t.column_name = c.column_name
-     where t.owner = upper(:a)
-     order by t.table_name, t.column_name
-    """, {'a': user})
+    need_all = True
+    if use_dba:
+        try:
+            cursor.execute("""
+                    select t.owner, t.table_name, t.column_name, c.comments, t.owner, t.data_type, 
+                        t.data_length, t.data_precision, t.data_scale, t.data_default, t.nullable
+                      from dba_tab_columns t
+                      left join dba_col_comments c
+                        on t.owner = c.owner
+                       and t.table_name = c.table_name
+                       and t.column_name = c.column_name
+                     where t.owner = upper(:a)
+                     order by t.table_name, t.column_name
+                    """, {'a': user})
+            need_all = False
+        except cx_Oracle.DatabaseError as exc:
+            error, = exc.args
+            if error.code != E_TABLE_NOT_EXISTS:
+                raise
+    if need_all:
+        cursor.execute("""
+                select t.owner, t.table_name, t.column_name, c.comments, t.owner, t.data_type, 
+                    t.data_length, t.data_precision, t.data_scale, t.data_default, t.nullable
+                  from all_tab_columns t
+                  left join all_col_comments c
+                    on t.owner = c.owner
+                   and t.table_name = c.table_name
+                   and t.column_name = c.column_name
+                 where t.owner = upper(:a)
+                 order by t.table_name, t.column_name
+                """, {'a': user})
 
     prev_table_id = None
     attrs = {}
@@ -107,31 +167,61 @@ def gather_attrs(connect, user, tables):
     return tables
 
 
-def gather_constraints(connect, user):
+def gather_constraints(connect, user, use_dba):
 
     cursor = connect.cursor()
-
-    cursor.execute("""
-        select c.table_name, c.constraint_type, c.constraint_name, c.owner, search_condition, 
-            r_constraint_name, index_owner, index_name
-          from all_constraints c
-          where c.owner = upper(:a)
-         order by c.owner, c.table_name, c.constraint_name
-        """, {'a': user})
+    need_all = True
+    if use_dba:
+        try:
+            cursor.execute("""
+                select c.table_name, c.constraint_type, c.constraint_name, c.owner, search_condition, 
+                    r_constraint_name, index_owner, index_name
+                  from dba_constraints c
+                  where c.owner = upper(:a)
+                 order by c.owner, c.table_name, c.constraint_name
+                """, {'a': user})
+            need_all = False
+        except cx_Oracle.DatabaseError as exc:
+            error, = exc.args
+            if error.code != E_TABLE_NOT_EXISTS:
+                raise
+    if need_all:
+        cursor.execute("""
+                select c.table_name, c.constraint_type, c.constraint_name, c.owner, search_condition, 
+                    r_constraint_name, index_owner, index_name
+                  from all_constraints c
+                  where c.owner = upper(:a)
+                 order by c.owner, c.table_name, c.constraint_name
+                """, {'a': user})
     constraints = {}
     for table_name, constraint_type, constraint_name, owner, search_condition, ref_constr, index_owner, index_name \
             in cursor:
         constraints[constraint_name] = {"table": get_table_id(owner, table_name), "type": constraint_type,
                                         "columns": [], 'check': search_condition, 'index_owner': index_owner,
                                         'index_name': index_name, "ref_constr": ref_constr}
-
-    cursor.execute("""
-            select 
-              cc.constraint_name,
-              cc.column_name 
-            from all_cons_columns cc where cc.owner = upper(:a)
-            order by owner, table_name, constraint_name, position
-            """, {'a': user})
+    need_all = True
+    if use_dba:
+        try:
+            cursor.execute("""
+                    select 
+                      cc.constraint_name,
+                      cc.column_name 
+                    from dba_cons_columns cc where cc.owner = upper(:a)
+                    order by owner, table_name, constraint_name, position
+                    """, {'a': user})
+            need_all = False
+        except cx_Oracle.DatabaseError as exc:
+            error, = exc.args
+            if error.code != E_TABLE_NOT_EXISTS:
+                raise
+    if need_all:
+        cursor.execute("""
+                   select 
+                     cc.constraint_name,
+                     cc.column_name 
+                   from all_cons_columns cc where cc.owner = upper(:a)
+                   order by owner, table_name, constraint_name, position
+                   """, {'a': user})
     for constraint_name, column_name in cursor:
         constraints[constraint_name]["columns"].append(column_name)
 
@@ -289,6 +379,9 @@ def make_report(tables, run_stats, filename, schema, locale):
 def get_settings():
     parser = argparse.ArgumentParser(description='Generate Oracle RDBMS schema description.')
     parser.add_argument("--interactive", '-i', help="Interactive workmode", action="store_true", default=False)
+    parser.add_argument("--dba", '-d', help="Use dba views if possible. If not, all_* would be used.",
+                        action="store_true", default=False)
+    parser.add_argument("--sysdba", '-s', help="Connect as sysdba", action="store_true", default=False)
     parser.add_argument("--locale", "-l", help="Localization file name, should be in l18n folder", action="store",
                         default="english")
     parser.add_argument("--file", "-f", help="Report file", action="store")
@@ -319,11 +412,12 @@ def main():
     connect = get_connect(args)
     target_user = args.target_user
     locale = args.locale
+    use_dba = args.dba
     run_stats = {"start_gather": datetime.datetime.now()}
     try:
-        schema_info = gather_tables(connect, target_user)
-        schema_info = gather_attrs(connect, target_user, schema_info)
-        schema_constraints = gather_constraints(connect, target_user)
+        schema_info = gather_tables(connect, target_user, use_dba)
+        schema_info = gather_attrs(connect, target_user, schema_info, use_dba)
+        schema_constraints = gather_constraints(connect, target_user, use_dba)
         run_stats["end_gather"] = datetime.datetime.now()
         run_stats["start_process"] = datetime.datetime.now()
         schema_info = process_constraints(schema_info, schema_constraints)
