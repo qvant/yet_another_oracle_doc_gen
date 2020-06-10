@@ -29,6 +29,10 @@
    "TABLE_TYPE_HEAP":"Heap",
    "TABLE_TYPE_IOT":"Index-organized",
    "TABLE_TYPE_TEMP":"Temporary",
+   "TRIGGER_NAME":"Trigger name",
+   "TRIGGER_ACTION":"Action",
+   "TRIGGER_EVENT":"Event",
+   "TRIGGERS":"Triggers",
    "TRUE":"True",
    "UNIQUE_CONSTRAINTS":"Unique constraints"
 }

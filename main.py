@@ -10,8 +10,6 @@ from messages import *
 TYPE_TABLE = M_TABLE_TYPE_T
 TYPE_VIEW = M_TABLE_TYPE_W
 
-E_TABLE_NOT_EXISTS = 942
-
 
 def get_connect(args):
     credentials = {"user": args.user, "password": args.password, "tns": args.tns}
@@ -36,36 +34,23 @@ def get_table_id(table_owner, table_name):
     return table_owner + '.' + table_name
 
 
-def gather_tables(connect, user, use_dba):
-    cursor = connect.cursor()
-    need_all = True
+def replace_views(sql, available_views):
+    for i in available_views.keys():
+        sql = sql.replace(i, available_views[i])
+    return sql
 
-    if use_dba:
-        try:
-            cursor.execute("""
-                select t.table_name, c.comments, t.owner, t.temporary, t.iot_type, t.partitioned
-                  from dba_tables t
-                  left join dba_tab_comments c
-                    on t.owner = c.owner
-                   and t.table_name = c.table_name
-                 where t.owner = upper(:a)
-                 order by t.table_name
-                """, {'a': user})
-            need_all = False
-        except cx_Oracle.DatabaseError as exc:
-            error, = exc.args
-            if error.code != E_TABLE_NOT_EXISTS:
-                raise
-    if need_all:
-        cursor.execute("""
-        select t.table_name, c.comments, t.owner, t.temporary, t.iot_type, t.partitioned
-          from all_tables t
-          left join all_tab_comments c
-            on t.owner = c.owner
-           and t.table_name = c.table_name
-         where t.owner = upper(:a)
-         order by t.table_name
-        """, {'a': user})
+
+def gather_tables(connect, user, available_views):
+    cursor = connect.cursor()
+    sql_tables = """select t.table_name, c.comments, t.owner, t.temporary, t.iot_type, t.partitioned
+                      from all_tables t
+                      left join all_tab_comments c
+                        on t.owner = c.owner
+                       and t.table_name = c.table_name
+                    where t.owner = upper(:a)
+                    order by t.table_name"""
+    sql_tables = replace_views(sql_tables, available_views)
+    cursor.execute(sql_tables, {'a': user})
 
     tables = {}
 
@@ -77,76 +62,43 @@ def gather_tables(connect, user, use_dba):
         elif temporary == 'Y':
             table_type = M_TABLE_TYPE_TEMP
         tables[table_id] = {"name": table_name, "comment": table_comment, "columns": {}, "type": TYPE_TABLE,
-                            "unique_indexes": [], "table_type": table_type, "partitioned": partitioned == 'Y'}
-    need_all = True
-    if use_dba:
-        try:
-            cursor.execute("""
-                select t.view_name, c.comments, t.owner
-                  from dba_views t
-                  left join dba_tab_comments c
-                    on t.owner = c.owner
-                   and t.view_name = c.table_name
-                 where t.owner = upper(:a)
-                 order by t.view_name
-                """, {'a': user})
-            need_all = False
-        except cx_Oracle.DatabaseError as exc:
-            error, = exc.args
-            if error.code != E_TABLE_NOT_EXISTS:
-                raise
-    if need_all:
-        cursor.execute("""
-                    select t.view_name, c.comments, t.owner
+                            "unique_indexes": [], "table_type": table_type, "partitioned": partitioned == 'Y',
+                            "triggers": []}
+
+    sql_views = """select t.view_name, c.comments, t.owner
                       from all_views t
                       left join all_tab_comments c
                         on t.owner = c.owner
                        and t.view_name = c.table_name
                      where t.owner = upper(:a)
                      order by t.view_name
-                    """, {'a': user})
+                    """
+    sql_views = replace_views(sql_views, available_views)
+    cursor.execute(sql_views, {'a': user})
 
     for table_name, table_comment, table_owner in cursor:
         table_id = get_table_id(table_owner, table_name)
         tables[table_id] = {"name": table_name, "comment": table_comment, "columns": {}, "type": TYPE_VIEW,
-                            "unique_indexes": []}
+                            "unique_indexes": [], "triggers": []}
 
     return tables
 
 
-def gather_attrs(connect, user, tables, use_dba):
+def gather_attrs(connect, user, tables, available_views):
     cursor = connect.cursor()
-    need_all = True
-    if use_dba:
-        try:
-            cursor.execute("""
+    sql_attrs = """
                     select t.owner, t.table_name, t.column_name, c.comments, t.owner, t.data_type, 
                         t.data_length, t.data_precision, t.data_scale, t.data_default, t.nullable
-                      from dba_tab_columns t
-                      left join dba_col_comments c
+                      from all_tab_columns t
+                      left join all_col_comments c
                         on t.owner = c.owner
                        and t.table_name = c.table_name
                        and t.column_name = c.column_name
                      where t.owner = upper(:a)
                      order by t.table_name, t.column_name
-                    """, {'a': user})
-            need_all = False
-        except cx_Oracle.DatabaseError as exc:
-            error, = exc.args
-            if error.code != E_TABLE_NOT_EXISTS:
-                raise
-    if need_all:
-        cursor.execute("""
-                select t.owner, t.table_name, t.column_name, c.comments, t.owner, t.data_type, 
-                    t.data_length, t.data_precision, t.data_scale, t.data_default, t.nullable
-                  from all_tab_columns t
-                  left join all_col_comments c
-                    on t.owner = c.owner
-                   and t.table_name = c.table_name
-                   and t.column_name = c.column_name
-                 where t.owner = upper(:a)
-                 order by t.table_name, t.column_name
-                """, {'a': user})
+                    """
+    sql_attrs = replace_views(sql_attrs, available_views)
+    cursor.execute(sql_attrs, {'a': user})
 
     prev_table_id = None
     attrs = {}
@@ -167,65 +119,62 @@ def gather_attrs(connect, user, tables, use_dba):
     return tables
 
 
-def gather_constraints(connect, user, use_dba):
+def gather_constraints(connect, user, available_views):
 
     cursor = connect.cursor()
-    need_all = True
-    if use_dba:
-        try:
-            cursor.execute("""
-                select c.table_name, c.constraint_type, c.constraint_name, c.owner, search_condition, 
-                    r_constraint_name, index_owner, index_name
-                  from dba_constraints c
-                  where c.owner = upper(:a)
-                 order by c.owner, c.table_name, c.constraint_name
-                """, {'a': user})
-            need_all = False
-        except cx_Oracle.DatabaseError as exc:
-            error, = exc.args
-            if error.code != E_TABLE_NOT_EXISTS:
-                raise
-    if need_all:
-        cursor.execute("""
+    sql_constraints = """
                 select c.table_name, c.constraint_type, c.constraint_name, c.owner, search_condition, 
                     r_constraint_name, index_owner, index_name
                   from all_constraints c
                   where c.owner = upper(:a)
                  order by c.owner, c.table_name, c.constraint_name
-                """, {'a': user})
+                """
+    sql_constraints = replace_views(sql_constraints, available_views)
+
+    cursor.execute(sql_constraints, {'a': user})
     constraints = {}
     for table_name, constraint_type, constraint_name, owner, search_condition, ref_constr, index_owner, index_name \
             in cursor:
         constraints[constraint_name] = {"table": get_table_id(owner, table_name), "type": constraint_type,
                                         "columns": [], 'check': search_condition, 'index_owner': index_owner,
                                         'index_name': index_name, "ref_constr": ref_constr}
-    need_all = True
-    if use_dba:
-        try:
-            cursor.execute("""
-                    select 
-                      cc.constraint_name,
-                      cc.column_name 
-                    from dba_cons_columns cc where cc.owner = upper(:a)
-                    order by owner, table_name, constraint_name, position
-                    """, {'a': user})
-            need_all = False
-        except cx_Oracle.DatabaseError as exc:
-            error, = exc.args
-            if error.code != E_TABLE_NOT_EXISTS:
-                raise
-    if need_all:
-        cursor.execute("""
+    sql_constraint_columns = """
                    select 
                      cc.constraint_name,
                      cc.column_name 
                    from all_cons_columns cc where cc.owner = upper(:a)
                    order by owner, table_name, constraint_name, position
-                   """, {'a': user})
+                   """
+    sql_constraint_columns = replace_views(sql_constraint_columns, available_views)
+
+    cursor.execute(sql_constraint_columns, {'a': user})
     for constraint_name, column_name in cursor:
         constraints[constraint_name]["columns"].append(column_name)
 
     return constraints
+
+
+def gather_triggers(connect, user, available_views):
+
+    cursor = connect.cursor()
+    sql_triggers = """
+                select t.table_owner, t.trigger_name, t.trigger_type, t.triggering_event, t.table_name, t.owner
+                  from all_triggers t
+                  where t.table_owner = upper(:a)
+                 order by t.owner, t.table_name, t.trigger_name
+                """
+    sql_triggers = replace_views(sql_triggers, available_views)
+
+    cursor.execute(sql_triggers, {'a': user})
+    triggers = {}
+    for owner, trigger_name, trigger_type, triggering_event, table_name, trigger_owner in cursor:
+        if table_name is None:
+            continue
+        triggers[get_table_id(trigger_owner, trigger_name)] = {"table": get_table_id(owner, table_name),
+                                                               "type": trigger_type, "event": triggering_event,
+                                                               "name": trigger_name, "owner": trigger_owner}
+
+    return triggers
 
 
 def process_constraints(tables, constraints):
@@ -246,6 +195,13 @@ def process_constraints(tables, constraints):
                 tables[table_id]["columns"][j]["check"] = constraints[i]["check"]
         elif constraints[i]["type"] == 'U':
             tables[table_id]["unique_indexes"].append({"name": i, "columns": constraints[i]["columns"]})
+    return tables
+
+
+def process_triggers(tables, triggers):
+    for i in triggers:
+        table_id = triggers[i]["table"]
+        tables[table_id]["triggers"].append(triggers[i])
     return tables
 
 
@@ -363,6 +319,26 @@ def make_report_tables(file, tables, trans):
             file.write("{}: <br><br>".format(trans.get_message(M_UNIQUE_CONSTRAINTS)))
             for j in tables[i]["unique_indexes"]:
                 make_report_index(file, j)
+        make_report_triggers(file, tables[i]["triggers"], trans)
+
+
+def make_report_triggers(file, triggers, trans):
+    if len(triggers) > 0:
+        file.write('''<br>''')
+        file.write("{}:<br>".format(trans.get_message(M_TRIGGERS)))
+        file.write("<table border = 1>")
+        file.write("<tr>")
+        file.write("<td>{}</td>".format(trans.get_message(M_TRIGGER_NAME)))
+        file.write("<td>{}</td>".format(trans.get_message(M_TRIGGER_EVENT)))
+        file.write("<td>{}</td>".format(trans.get_message(M_TRIGGER_ACTION)))
+        file.write("</tr>")
+        for i in triggers:
+            file.write("<tr>")
+            file.write("<td>{}</td>".format(i["owner"] + "." + i["name"]))
+            file.write("<td>{}</td>".format(i["type"]))
+            file.write("<td>{}</td>".format(i["event"]))
+            file.write("</tr>")
+        file.write("</table>")
 
 
 def make_report(tables, run_stats, filename, schema, locale):
@@ -374,6 +350,24 @@ def make_report(tables, run_stats, filename, schema, locale):
     make_report_tables(f, tables, translator)
     make_report_footer(f, run_stats, translator)
     f.close()
+
+
+def get_system_views(connect, use_dba):
+    views_temp = ["all_tables", "all_tab_comments", "all_views", "all_tab_columns", "all_col_comments",
+                  "all_constraints", "all_cons_columns", "all_triggers"]
+    views = {}
+    dba_views = []
+    for i in views_temp:
+        views[i] = i
+        dba_views.append("dba" + i[3:])
+    if use_dba:
+        sql = '''select lower(view_name) from all_views where view_name in ('{}')'''.\
+            format("','".join(dba_views).upper())
+        cursor = connect.cursor()
+        cursor.execute(sql)
+        for view_name, in cursor:
+            views["all" + view_name[3:]] = view_name
+    return views
 
 
 def get_settings():
@@ -415,12 +409,15 @@ def main():
     use_dba = args.dba
     run_stats = {"start_gather": datetime.datetime.now()}
     try:
-        schema_info = gather_tables(connect, target_user, use_dba)
-        schema_info = gather_attrs(connect, target_user, schema_info, use_dba)
-        schema_constraints = gather_constraints(connect, target_user, use_dba)
+        db_views = get_system_views(connect, use_dba)
+        schema_info = gather_tables(connect, target_user, db_views)
+        schema_info = gather_attrs(connect, target_user, schema_info, db_views)
+        schema_constraints = gather_constraints(connect, target_user, db_views)
+        triggers_constraints = gather_triggers(connect, target_user, db_views)
         run_stats["end_gather"] = datetime.datetime.now()
         run_stats["start_process"] = datetime.datetime.now()
         schema_info = process_constraints(schema_info, schema_constraints)
+        schema_info = process_triggers(schema_info, triggers_constraints)
     except cx_Oracle.DatabaseError as exc:
         error, = exc.args
         print("NLS_LANG: " + os.environ.get("NLS_LANG"))

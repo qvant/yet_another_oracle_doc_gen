@@ -29,6 +29,10 @@
    "TABLE_TYPE_HEAP":"Обычная",
    "TABLE_TYPE_IOT":"Index-organized",
    "TABLE_TYPE_TEMP":"Временная",
+   "TRIGGER_NAME":"Название",
+   "TRIGGER_ACTION":"Операция",
+   "TRIGGER_EVENT":"Уровень и время",
+   "TRIGGERS":"Триггеры",
    "TRUE":"Да",
    "UNIQUE_CONSTRAINTS":"Ограничения уникальности"
 }
