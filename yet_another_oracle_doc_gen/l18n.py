@@ -1,6 +1,6 @@
 import json
 import codecs
-from messages import M_TRUE, M_FALSE
+from yet_another_oracle_doc_gen.messages import M_TRUE, M_FALSE
 
 DEFAULT_LOCALE = 'english'
 

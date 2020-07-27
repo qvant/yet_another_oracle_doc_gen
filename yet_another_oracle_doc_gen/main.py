@@ -4,8 +4,8 @@ import argparse
 import codecs
 import getpass
 import os
-from l18n import L18n
-from messages import *
+from yet_another_oracle_doc_gen.l18n import L18n
+from yet_another_oracle_doc_gen.messages import *
 
 TYPE_TABLE = M_TABLE_TYPE_T
 TYPE_VIEW = M_TABLE_TYPE_W
