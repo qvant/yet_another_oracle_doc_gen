@@ -177,6 +177,26 @@ def gather_triggers(connect, user, available_views):
     return triggers
 
 
+def gather_queues(connect, user, available_views):
+
+    cursor = connect.cursor()
+    sql_triggers = """
+                select t.owner, t.name, t.queue_table, t.user_comment, t.queue_type
+                  from all_queues t
+                  where t.owner = upper(:a)
+                 order by t.owner, t.name, t.queue_table
+                """
+    sql_triggers = replace_views(sql_triggers, available_views)
+
+    cursor.execute(sql_triggers, {'a': user})
+    queues = {}
+    for owner, q_name, q_table, q_comment, q_type in cursor:
+        queues[get_table_id(owner, q_name)] = {"name": q_name, "table": get_table_id(owner, q_table), "comment": q_comment,
+                                               "type": q_type}
+
+    return queues
+
+
 def process_constraints(tables, constraints):
     for i in constraints:
         table_id = constraints[i]["table"]
@@ -322,6 +342,28 @@ def make_report_tables(file, tables, trans):
         make_report_triggers(file, tables[i]["triggers"], trans)
 
 
+def make_report_queues(file, queues, trans):
+    if len(queues) == 0:
+        return
+    file.write("<h1>" + trans.get_message(M_QUEUES) + "</h1>")
+    file.write("<table border = 1>")
+    file.write("<tr>")
+    file.write("<td>{}</td>".format(trans.get_message(M_QUEUE)))
+    file.write("<td>{}</td>".format(trans.get_message(M_TABLE)))
+    file.write("<td>{}</td>".format(trans.get_message(M_QUEUE_TYPE)))
+    file.write("<td>{}</td>".format(trans.get_message(M_COMMENT)))
+    file.write("</tr>")
+    for i in queues:
+        file.write("<tr>")
+        file.write("<td>{}</td>".format(queues[i]["name"]))
+        file.write("<td><a href=\"#{}\">{}</a></td>".format(queues[i]["table"], queues[i]["table"]))
+        file.write("<td>{}</td>".format(queues[i]["type"]))
+        file.write("<td>{}</td>".format(queues[i]["comment"]))
+        file.write("</tr>")
+
+    file.write("</table>")
+
+
 def make_report_triggers(file, triggers, trans):
     if len(triggers) > 0:
         file.write('''<br>''')
@@ -341,20 +383,21 @@ def make_report_triggers(file, triggers, trans):
         file.write("</table>")
 
 
-def make_report(tables, run_stats, filename, schema, locale):
+def make_report(tables, queues, run_stats, filename, schema, locale):
     run_stats["start_report"] = datetime.datetime.now()
     f = codecs.open(filename, 'w', "utf-8")
     translator = L18n()
     translator.set_locale(locale)
     make_report_header(f, tables, schema, translator)
     make_report_tables(f, tables, translator)
+    make_report_queues(f, queues, translator)
     make_report_footer(f, run_stats, translator)
     f.close()
 
 
 def get_system_views(connect, use_dba):
     views_temp = ["all_tables", "all_tab_comments", "all_views", "all_tab_columns", "all_col_comments",
-                  "all_constraints", "all_cons_columns", "all_triggers"]
+                  "all_constraints", "all_cons_columns", "all_triggers", "all_queues"]
     views = {}
     dba_views = []
     for i in views_temp:
@@ -414,6 +457,7 @@ def main():
         schema_info = gather_attrs(connect, target_user, schema_info, db_views)
         schema_constraints = gather_constraints(connect, target_user, db_views)
         triggers_constraints = gather_triggers(connect, target_user, db_views)
+        queues = gather_queues(connect, target_user, db_views)
         run_stats["end_gather"] = datetime.datetime.now()
         run_stats["start_process"] = datetime.datetime.now()
         schema_info = process_constraints(schema_info, schema_constraints)
@@ -425,7 +469,7 @@ def main():
         print(error.message)
         raise
     run_stats["end_process"] = datetime.datetime.now()
-    make_report(schema_info, run_stats, args.file, target_user, locale)
+    make_report(schema_info, queues, run_stats, args.file, target_user, locale)
     if args.interactive:
         print('Job finished')
 
