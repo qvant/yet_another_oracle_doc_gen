@@ -225,10 +225,11 @@ def process_triggers(tables, triggers):
     return tables
 
 
-def make_report_header(file, tables, schema, trans):
+def make_report_header(file, tables, schema, trans, gen_user):
     file.write("<html>")
     file.write("<body>")
     file.write("<h1> {}: {}</h1>".format(trans.get_message(M_SCHEMA), schema))
+    file.write("<h1> {}: {}</h1>".format(trans.get_message(M_GENERATED_AS), gen_user))
     file.write("<h1>{}</h1>".format(trans.get_message(M_TABLES)))
     for i in tables:
         file.write('''<a href="#''' + i + '''">''')
@@ -383,12 +384,12 @@ def make_report_triggers(file, triggers, trans):
         file.write("</table>")
 
 
-def make_report(tables, queues, run_stats, filename, schema, locale):
+def make_report(tables, queues, run_stats, filename, schema, locale, gen_user):
     run_stats["start_report"] = datetime.datetime.now()
     f = codecs.open(filename, 'w', "utf-8")
     translator = L18n()
     translator.set_locale(locale)
-    make_report_header(f, tables, schema, translator)
+    make_report_header(f, tables, schema, translator, gen_user)
     make_report_tables(f, tables, translator)
     make_report_queues(f, queues, translator)
     make_report_footer(f, run_stats, translator)
@@ -469,7 +470,7 @@ def main():
         print(error.message)
         raise
     run_stats["end_process"] = datetime.datetime.now()
-    make_report(schema_info, queues, run_stats, args.file, target_user, locale)
+    make_report(schema_info, queues, run_stats, args.file, target_user, locale, args.user)
     if args.interactive:
         print('Job finished')
 

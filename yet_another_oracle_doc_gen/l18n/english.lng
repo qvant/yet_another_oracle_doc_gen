@@ -13,6 +13,7 @@
    "EXEC_TIME":"Time report",
    "FALSE":"False",
    "IS_PARTITIONED":"Partitioned",
+   "GENERATED_AS":"Generated as",
    "METADATA_GATHER_BEGIN":"Started gather metadata",
    "METADATA_GATHER_END":"Finished gather metadata",
    "METADATA_PROCESS_BEGIN":"Started process metadata",
