@@ -1,11 +1,11 @@
 import cx_Oracle
 import datetime
 import argparse
-import codecs
 import getpass
 import os
 from yet_another_oracle_doc_gen.l18n import L18n
 from yet_another_oracle_doc_gen.messages import *
+from yet_another_oracle_doc_gen.reports import Report
 
 TYPE_TABLE = M_TABLE_TYPE_T
 TYPE_VIEW = M_TABLE_TYPE_W
@@ -226,118 +226,114 @@ def process_triggers(tables, triggers):
 
 
 def make_report_header(file, tables, schema, trans, gen_user):
-    file.write("<html>")
-    file.write("<body>")
-    file.write("<h1> {}: {}</h1>".format(trans.get_message(M_SCHEMA), schema))
-    file.write("<h1> {}: {}</h1>".format(trans.get_message(M_GENERATED_AS), gen_user))
-    file.write("<h1>{}</h1>".format(trans.get_message(M_TABLES)))
+    file.init()
+    file.add_header("{}: {}".format(trans.get_message(M_SCHEMA), schema))
+    file.add_header("{}: {}".format(trans.get_message(M_GENERATED_AS), gen_user))
+    file.add_header("{}".format(trans.get_message(M_TABLES)))
     for i in tables:
-        file.write('''<a href="#''' + i + '''">''')
-        file.write(tables[i]["name"] + '''</a><br>''')
+        file.add_link(i, tables[i]["name"])
+        file.new_line()
 
 
 def make_report_footer(file, run_stats, trans):
-    file.write("<h1>{}:</h1>".format(trans.get_message(M_EXEC_TIME)))
-    file.write("<table border = 1>")
-    file.write("<tr><td>")
-    file.write("{} </td><td>{}".format(trans.get_message(M_METADATA_GATHER_BEGIN), run_stats["start_gather"]))
-    file.write("</td></tr><tr><td>")
-    file.write("{} </td><td>{}".format(trans.get_message(M_METADATA_GATHER_END), run_stats["end_gather"]))
-    file.write("</td></tr><tr><td>")
-    file.write("{} </td><td>{}".format(trans.get_message(M_METADATA_PROCESS_BEGIN), run_stats["start_process"]))
-    file.write("</td></tr><tr><td>")
-    file.write("{} </td><td>{}".format(trans.get_message(M_METADATA_PROCESS_END), run_stats["end_process"]))
-    file.write("</td></tr><tr><td>")
-    file.write("{} </td><td>{}".format(trans.get_message(M_REPORT_PROCESS_BEGIN), run_stats["start_report"]))
-    file.write("</td></tr><tr><td>")
+    file.add_header(trans.get_message(M_EXEC_TIME))
+    file.add_table()
+    file.add_table_row([trans.get_message(M_METADATA_GATHER_BEGIN), run_stats["start_gather"]])
+    file.add_table_row([trans.get_message(M_METADATA_GATHER_END), run_stats["end_gather"]])
+    file.add_table_row([trans.get_message(M_METADATA_PROCESS_BEGIN), run_stats["start_process"]])
+    file.add_table_row([trans.get_message(M_METADATA_PROCESS_END), run_stats["end_process"]])
+    file.add_table_row([trans.get_message(M_REPORT_PROCESS_BEGIN), run_stats["start_report"]])
     run_stats["end_report"] = datetime.datetime.now()
-    file.write("{}: </td><td>{}".format(trans.get_message(M_REPORT_PROCESS_END), run_stats["end_report"]))
-    file.write("</td></tr>")
-    file.write("</table>")
-    file.write("</body>")
-    file.write("</html>")
+    file.add_table_row([trans.get_message(M_REPORT_PROCESS_END), run_stats["end_report"]])
+    file.close_table()
 
 
 def make_report_attr(file, attr, trans):
-    file.write("<tr>")
-    file.write("<td>" + attr["name"] + "</td>")
-    file.write("<td>" + attr["type"] + "</td>")
-    file.write("<td>" + str(attr["length"]) + "</td>")
+    file.open_table_row()
+    file.add_table_cell(attr["name"])
+    file.add_table_cell(attr["type"])
+    file.add_table_cell(str(attr["length"]))
     if attr["precision"] is not None:
-        file.write("<td>" + str(attr["precision"]) + "</td>")
+        file.add_table_cell(str(attr["precision"]))
     else:
-        file.write("<td></td>")
+        file.add_table_cell('')
     if attr["default"] is not None:
-        file.write("<td>" + str(attr["default"]) + "</td>")
+        file.add_table_cell(str(attr["default"]))
     else:
-        file.write("<td>NULL</td>")
+        file.add_table_cell('NULL')
     if attr["primary_key"]:
-        file.write("<td>{}</td>".format(trans.translate_bool(True)))
+        file.add_table_cell(trans.translate_bool(True))
     else:
-        file.write("<td></td>")
+        file.add_table_cell('')
     if "ref_table" in attr.keys():
-        file.write('''<td><a href="#''' + attr["ref_table"] + '''">''' + attr["ref_table"] + '''</td>''')
+        file.open_table_cell()
+        file.add_link(attr["ref_table"], attr["ref_table"])
+        file.close_table_cell()
     else:
-        file.write("<td></td>")
+        file.add_table_cell('')
     if "check" in attr.keys():
-        file.write("<td>" + attr["check"] + "</td>")
+        file.add_table_cell(attr["check"])
     else:
-        file.write("<td></td>")
+        file.add_table_cell('')
     if attr["nullable"]:
-        file.write("<td></td>")
+        file.add_table_cell('')
     else:
-        file.write("<td>{}</td>".format(trans.translate_bool(True)))
+        file.add_table_cell(trans.translate_bool(True))
     if attr["comment"] is not None:
-        file.write("<td>" + str(attr["comment"]) + "</td>")
+        file.add_table_cell(str(attr["comment"]))
     else:
-        file.write("<td></td>")
-    file.write("</tr>")
+        file.add_table_cell('')
+    file.close_table_row()
 
 
 def make_report_index(file, index):
     file.write(index["name"])
-    file.write("<br><ul>")
-    for i in index["columns"]:
-        file.write("<li>")
-        file.write(i)
-        file.write("</li>")
-    file.write("</ul>")
+    file.new_line()
+    file.add_list(index["columns"])
 
 
 def make_report_tables(file, tables, trans):
     for i in tables:
-        file.write('''<a id="''' + i + '''"</a>''')
-        file.write("<h2>" + tables[i]["name"] + "</h2>")
-        file.write("{}: {}<br>".format(trans.get_message(M_TABLE), tables[i]["name"]))
-        file.write("{}: {}<br>".format(trans.get_message(M_TABLE_OR_VIEW), trans.get_message(tables[i]["type"])))
+        file.add_link_anchor(i)
+        file.add_header(tables[i]["name"], 2)
+        file.write("{}: {}".format(trans.get_message(M_TABLE), tables[i]["name"]))
+        file.new_line()
+        file.write("{}: {}".format(trans.get_message(M_TABLE_OR_VIEW), trans.get_message(tables[i]["type"])))
+        file.new_line()
         if "table_type" in tables[i].keys():
-            file.write("{}: {}<br>".format(trans.get_message(M_TABLE_CATEGORY),
-                                           trans.get_message(tables[i]["table_type"])))
+            file.write("{}: {}".format(trans.get_message(M_TABLE_CATEGORY),
+                                       trans.get_message(tables[i]["table_type"])))
+            file.new_line()
         if "partitioned" in tables[i].keys():
-            file.write("{}: {}<br>".format(trans.get_message(M_IS_PARTITIONED),
-                                           trans.translate_bool(tables[i]["partitioned"])))
+            file.write("{}: {}".format(trans.get_message(M_IS_PARTITIONED),
+                                       trans.translate_bool(tables[i]["partitioned"])))
+            file.new_line()
         if tables[i]["comment"] is not None and len(tables[i]["comment"]) > 0:
-            file.write("{}: {}<br>".format(trans.get_message(M_COMMENT), tables[i]["comment"]))
-        file.write("{}:<br>".format(trans.get_message(M_COLUMNS)))
-        file.write("<table border = 1>")
-        file.write("<tr>")
-        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_NAME)))
-        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_TYPE)))
-        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_LENGTH)))
-        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_PRECISION)))
-        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_DEFAULT)))
-        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_PK)))
-        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_FK)))
-        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_CHECK)))
-        file.write("<td>{}</td>".format(trans.get_message(M_COLUMN_NULLABLE)))
-        file.write("<td>{}</td>".format(trans.get_message(M_COMMENT)))
-        file.write("</tr>")
+            file.write("{}: {}".format(trans.get_message(M_COMMENT), tables[i]["comment"]))
+            file.new_line()
+        file.write("{}:".format(trans.get_message(M_COLUMNS)))
+        file.new_line()
+        file.add_table()
+        file.open_table_row()
+        file.add_table_cell(trans.get_message(M_COLUMN_NAME))
+        file.add_table_cell(trans.get_message(M_COLUMN_TYPE))
+        file.add_table_cell(trans.get_message(M_COLUMN_LENGTH))
+        file.add_table_cell(trans.get_message(M_COLUMN_PRECISION))
+        file.add_table_cell(trans.get_message(M_COLUMN_DEFAULT))
+        file.add_table_cell(trans.get_message(M_COLUMN_PK))
+        file.add_table_cell(trans.get_message(M_COLUMN_FK))
+        file.add_table_cell(trans.get_message(M_COLUMN_CHECK))
+        file.add_table_cell(trans.get_message(M_COLUMN_NULLABLE))
+        file.add_table_cell(trans.get_message(M_COMMENT))
+        file.close_table_row()
         for j in tables[i]["columns"]:
             make_report_attr(file, tables[i]["columns"][j], trans)
-        file.write("</table>")
+        file.close_table()
         if len(tables[i]["unique_indexes"]) > 0:
-            file.write('''<br>''')
-            file.write("{}: <br><br>".format(trans.get_message(M_UNIQUE_CONSTRAINTS)))
+            file.new_line()
+            file.write("{}:".format(trans.get_message(M_UNIQUE_CONSTRAINTS)))
+            file.new_line()
+            file.new_line()
             for j in tables[i]["unique_indexes"]:
                 make_report_index(file, j)
         make_report_triggers(file, tables[i]["triggers"], trans)
@@ -346,54 +342,58 @@ def make_report_tables(file, tables, trans):
 def make_report_queues(file, queues, trans):
     if len(queues) == 0:
         return
-    file.write("<h1>" + trans.get_message(M_QUEUES) + "</h1>")
-    file.write("<table border = 1>")
-    file.write("<tr>")
-    file.write("<td>{}</td>".format(trans.get_message(M_QUEUE)))
-    file.write("<td>{}</td>".format(trans.get_message(M_TABLE)))
-    file.write("<td>{}</td>".format(trans.get_message(M_QUEUE_TYPE)))
-    file.write("<td>{}</td>".format(trans.get_message(M_COMMENT)))
-    file.write("</tr>")
+    file.add_header(trans.get_message(M_QUEUES))
+    file.open_table()
+    file.open_table_row()
+    file.add_table_cell(trans.get_message(M_QUEUE))
+    file.add_table_cell(trans.get_message(M_TABLE))
+    file.add_table_cell(trans.get_message(M_QUEUE_TYPE))
+    file.add_table_cell(trans.get_message(M_COMMENT))
+    file.close_table_row()
     for i in queues:
-        file.write("<tr>")
-        file.write("<td>{}</td>".format(queues[i]["name"]))
-        file.write("<td><a href=\"#{}\">{}</a></td>".format(queues[i]["table"], queues[i]["table"]))
-        file.write("<td>{}</td>".format(queues[i]["type"]))
-        file.write("<td>{}</td>".format(queues[i]["comment"]))
-        file.write("</tr>")
+        file.open_table_row()
+        file.add_table_cell(queues[i]["name"])
+        file.open_table_cell()
+        file.add_link(queues[i]["table"], queues[i]["table"])
+        file.close_table_cell()
+        file.add_table_cell(queues[i]["type"])
+        file.add_table_cell(queues[i]["comment"])
+        file.close_table_row()
 
-    file.write("</table>")
+    file.close_table()
 
 
 def make_report_triggers(file, triggers, trans):
     if len(triggers) > 0:
-        file.write('''<br>''')
-        file.write("{}:<br>".format(trans.get_message(M_TRIGGERS)))
-        file.write("<table border = 1>")
-        file.write("<tr>")
-        file.write("<td>{}</td>".format(trans.get_message(M_TRIGGER_NAME)))
-        file.write("<td>{}</td>".format(trans.get_message(M_TRIGGER_EVENT)))
-        file.write("<td>{}</td>".format(trans.get_message(M_TRIGGER_ACTION)))
-        file.write("</tr>")
+        file.new_line()
+        file.write("{}:".format(trans.get_message(M_TRIGGERS)))
+        file.new_line()
+        file.add_table()
+        file.open_table_row()
+        file.add_table_cell(trans.get_message(M_TRIGGER_NAME))
+        file.add_table_cell(trans.get_message(M_TRIGGER_EVENT))
+        file.add_table_cell(trans.get_message(M_TRIGGER_ACTION))
+        file.close_table_row()
         for i in triggers:
-            file.write("<tr>")
-            file.write("<td>{}</td>".format(i["owner"] + "." + i["name"]))
-            file.write("<td>{}</td>".format(i["type"]))
-            file.write("<td>{}</td>".format(i["event"]))
-            file.write("</tr>")
-        file.write("</table>")
+            file.open_table_row()
+            file.add_table_cell(i["owner"] + "." + i["name"])
+            file.add_table_cell(i["type"])
+            file.add_table_cell(i["event"])
+            file.close_table_row()
+        file.close_table()
 
 
-def make_report(tables, queues, run_stats, filename, schema, locale, gen_user):
+def make_report(tables, queues, run_stats, filename, schema, locale, gen_user, file_type):
     run_stats["start_report"] = datetime.datetime.now()
-    f = codecs.open(filename, 'w', "utf-8")
     translator = L18n()
     translator.set_locale(locale)
-    make_report_header(f, tables, schema, translator, gen_user)
-    make_report_tables(f, tables, translator)
-    make_report_queues(f, queues, translator)
-    make_report_footer(f, run_stats, translator)
-    f.close()
+    report = Report(file_type)
+    report.set_file(filename)
+    make_report_header(report, tables, schema, translator, gen_user)
+    make_report_tables(report, tables, translator)
+    make_report_queues(report, queues, translator)
+    make_report_footer(report, run_stats, translator)
+    report.close()
 
 
 def get_system_views(connect, use_dba):
@@ -423,6 +423,7 @@ def get_settings():
     parser.add_argument("--locale", "-l", help="Localization file name, should be in l18n folder", action="store",
                         default="english")
     parser.add_argument("--file", "-f", help="Report file", action="store")
+    parser.add_argument("--file_type", "-ft", help="File type, html or docx", action="store", default='html')
     parser.add_argument("--user", "-u", help="User for gathering metadata", action="store")
     parser.add_argument("--password", "-p", help="Password", action="store")
     parser.add_argument("--tns", "-t", help="TNS for gathering metadata", action="store")
@@ -451,6 +452,7 @@ def main():
     target_user = args.target_user
     locale = args.locale
     use_dba = args.dba
+    file_type = args.file_type.upper()
     run_stats = {"start_gather": datetime.datetime.now()}
     try:
         db_views = get_system_views(connect, use_dba)
@@ -470,7 +472,7 @@ def main():
         print(error.message)
         raise
     run_stats["end_process"] = datetime.datetime.now()
-    make_report(schema_info, queues, run_stats, args.file, target_user, locale, args.user)
+    make_report(schema_info, queues, run_stats, args.file, target_user, locale, args.user, file_type)
     if args.interactive:
         print('Job finished')
 
