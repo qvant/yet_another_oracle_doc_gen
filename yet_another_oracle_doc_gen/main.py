@@ -48,6 +48,7 @@ def gather_tables(connect, user, available_views):
                         on t.owner = c.owner
                        and t.table_name = c.table_name
                     where t.owner = upper(:a)
+                    and t.table_name not like 'BIN$%'
                     order by t.table_name"""
     sql_tables = replace_views(sql_tables, available_views)
     cursor.execute(sql_tables, {'a': user})
@@ -127,6 +128,7 @@ def gather_constraints(connect, user, available_views):
                     r_constraint_name, index_owner, index_name
                   from all_constraints c
                   where c.owner = upper(:a)
+                    and c.constraint_name not like 'BIN$%'
                  order by c.owner, c.table_name, c.constraint_name
                 """
     sql_constraints = replace_views(sql_constraints, available_views)
@@ -142,7 +144,7 @@ def gather_constraints(connect, user, available_views):
                    select 
                      cc.constraint_name,
                      cc.column_name 
-                   from all_cons_columns cc where cc.owner = upper(:a)
+                   from all_cons_columns cc where cc.owner = upper(:a) and cc.constraint_name not like 'BIN$%'
                    order by owner, table_name, constraint_name, position
                    """
     sql_constraint_columns = replace_views(sql_constraint_columns, available_views)
