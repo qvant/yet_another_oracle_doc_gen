@@ -278,9 +278,9 @@ def make_report_attr(file, attr, trans):
     else:
         file.add_table_cell('')
     if attr["nullable"]:
-        file.add_table_cell('')
-    else:
         file.add_table_cell(trans.translate_bool(True))
+    else:
+        file.add_table_cell('')
     if attr["comment"] is not None:
         file.add_table_cell(str(attr["comment"]))
     else:
