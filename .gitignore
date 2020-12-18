@@ -157,4 +157,4 @@ dmypy.json
 .idea/
 
 #exclude temp sql files
-.~sql
+*.~sql
