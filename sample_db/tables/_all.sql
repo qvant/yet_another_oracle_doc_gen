@@ -19,7 +19,7 @@ create table t_hist_table
        b_deleted number(1) default 0 not null,
        constraint pk_t_hist_table primary key (id),
        constraint fk_hist_dict foreign key(dict_id) references t_dict(id),
-       constraint check_hist_del_flaf check (b_deleted in (0, 1))
+       constraint check_hist_del_flag check (b_deleted in (0, 1))
 );
 comment on table t_hist_table is 'Historical table';
 comment on column t_hist_table.id is 'Unique id';
