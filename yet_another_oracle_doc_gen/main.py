@@ -89,7 +89,8 @@ def gather_attrs(connect, user, tables, available_views):
     cursor = connect.cursor()
     sql_attrs = """
                     select t.owner, t.table_name, t.column_name, c.comments, t.owner, t.data_type, 
-                        t.data_length, t.data_precision, t.data_scale, t.data_default, t.nullable
+                        t.data_length, t.data_precision, t.data_scale, t.data_default, t.nullable, 
+                        t.char_length, t.char_used
                       from all_tab_columns t
                       left join all_col_comments c
                         on t.owner = c.owner
@@ -104,7 +105,7 @@ def gather_attrs(connect, user, tables, available_views):
     prev_table_id = None
     attrs = {}
     for owner, table_name, column_name, comments, owner, data_type, data_length, data_precision, data_scale, \
-            data_default, nullable in cursor:
+            data_default, nullable, char_length, char_used in cursor:
         table_id = get_table_id(owner, table_name)
         if prev_table_id is None:
             prev_table_id = table_id
@@ -112,9 +113,17 @@ def gather_attrs(connect, user, tables, available_views):
             tables[prev_table_id]["columns"].update(attrs)
             prev_table_id = table_id
             attrs = {}
+        length_semantics = ''
+        if char_used is not None:
+            data_length = char_length
+            if char_used == 'C':
+                length_semantics = 'CHAR'
+            else:
+                length_semantics = 'BYTE'
         attrs[column_name] = {"name": column_name, "type": data_type, "length": data_length,
                               "precision": data_precision, "scale": data_scale, "default": data_default,
-                              "comment": comments, "primary_key": False, "nullable": nullable == 'Y'}
+                              "comment": comments, "primary_key": False, "nullable": nullable == 'Y',
+                              "length_semantics": length_semantics}
     if prev_table_id is not None:
         tables[prev_table_id]["columns"].update(attrs)
     return tables
@@ -255,6 +264,7 @@ def make_report_attr(file, attr, trans):
     file.add_table_cell(attr["name"])
     file.add_table_cell(attr["type"])
     file.add_table_cell(str(attr["length"]))
+    file.add_table_cell(str(attr["length_semantics"]))
     if attr["precision"] is not None:
         file.add_table_cell(str(attr["precision"]))
     else:
@@ -320,6 +330,7 @@ def make_report_tables(file, tables, trans):
         file.add_table_cell(trans.get_message(M_COLUMN_NAME))
         file.add_table_cell(trans.get_message(M_COLUMN_TYPE))
         file.add_table_cell(trans.get_message(M_COLUMN_LENGTH))
+        file.add_table_cell(trans.get_message(M_COLUMN_LENGTH_SEMANTICS))
         file.add_table_cell(trans.get_message(M_COLUMN_PRECISION))
         file.add_table_cell(trans.get_message(M_COLUMN_DEFAULT))
         file.add_table_cell(trans.get_message(M_COLUMN_PK))

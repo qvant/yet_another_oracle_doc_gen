@@ -3,6 +3,7 @@
    "COLUMN_NAME":"Название",
    "COLUMN_TYPE":"Тип данных",
    "COLUMN_LENGTH":"Длина",
+   "COLUMN_LENGTH_SEMANTICS":"Ед. изм.",
    "COLUMN_PRECISION":"Точность",
    "COLUMN_DEFAULT":"Значение по умолчанию",
    "COLUMN_PK":"Ключ",

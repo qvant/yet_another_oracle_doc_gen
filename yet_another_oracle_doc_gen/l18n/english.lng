@@ -3,6 +3,7 @@
    "COLUMN_NAME":"Name",
    "COLUMN_TYPE":"Type",
    "COLUMN_LENGTH":"Length",
+   "COLUMN_LENGTH_SEMANTICS":"Length semantics",
    "COLUMN_PRECISION":"Precision",
    "COLUMN_DEFAULT":"Default value",
    "COLUMN_PK":"Is primary key",
