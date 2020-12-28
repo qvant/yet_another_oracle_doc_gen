@@ -120,6 +120,10 @@ def gather_attrs(connect, user, tables, available_views):
                 length_semantics = 'CHAR'
             else:
                 length_semantics = 'BYTE'
+        # remove quotas in defaults for string fields
+        if data_default is not None:
+            if data_default[0] == "'":
+                data_default = data_default[1:-1]
         attrs[column_name] = {"name": column_name, "type": data_type, "length": data_length,
                               "precision": data_precision, "scale": data_scale, "default": data_default,
                               "comment": comments, "primary_key": False, "nullable": nullable == 'Y',
