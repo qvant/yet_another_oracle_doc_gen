@@ -137,3 +137,17 @@ comment on column t_func_indexed_table.dt_stop is 'Timestamp of record stop';
 comment on column t_func_indexed_table.dict_id is 'Reference to t_dict';
 comment on column t_func_indexed_table.b_deleted is 'Logical deletion flag';
 comment on column t_func_indexed_table.v_name is 'Indexed string field';
+
+create table t_nested
+(
+       id number,
+       v_name varchar2(128),
+       c_strings string_list,
+       constraint pk_t_nested primary key (id)
+)
+NESTED TABLE c_strings STORE AS t_nested_strings;
+
+comment on table t_nested is 'Simple table with nested table field';
+comment on column t_nested.id is 'Unique id';
+comment on column t_nested.v_name is 'Record name';
+comment on column t_nested.c_strings is 'List of strings (nested table)';

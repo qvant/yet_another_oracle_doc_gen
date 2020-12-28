@@ -42,7 +42,7 @@ def replace_views(sql, available_views):
 
 def gather_tables(connect, user, available_views):
     cursor = connect.cursor()
-    sql_tables = """select t.table_name, c.comments, t.owner, t.temporary, t.iot_type, t.partitioned
+    sql_tables = """select t.table_name, c.comments, t.owner, t.temporary, t.iot_type, t.partitioned, t.nested
                       from all_tables t
                       left join all_tab_comments c
                         on t.owner = c.owner
@@ -55,7 +55,7 @@ def gather_tables(connect, user, available_views):
 
     tables = {}
 
-    for table_name, table_comment, table_owner, temporary, iot_type, partitioned in cursor:
+    for table_name, table_comment, table_owner, temporary, iot_type, partitioned, nested in cursor:
         table_id = get_table_id(table_owner, table_name)
         table_type = M_TABLE_TYPE_HEAP
         if iot_type is not None:
@@ -64,7 +64,7 @@ def gather_tables(connect, user, available_views):
             table_type = M_TABLE_TYPE_TEMP
         tables[table_id] = {"name": table_name, "comment": table_comment, "columns": {}, "type": TYPE_TABLE,
                             "unique_indexes": [], "table_type": table_type, "partitioned": partitioned == 'Y',
-                            "triggers": [], "indexes": []}
+                            "triggers": [], "indexes": [], "nested": nested == 'YES'}
 
     sql_views = """select t.view_name, c.comments, t.owner
                       from all_views t
@@ -80,7 +80,7 @@ def gather_tables(connect, user, available_views):
     for table_name, table_comment, table_owner in cursor:
         table_id = get_table_id(table_owner, table_name)
         tables[table_id] = {"name": table_name, "comment": table_comment, "columns": {}, "type": TYPE_VIEW,
-                            "unique_indexes": [], "triggers": [], "indexes": []}
+                            "unique_indexes": [], "triggers": [], "indexes": [], "nested": False}
 
     return tables
 
@@ -371,6 +371,9 @@ def make_report_index(file, index):
 
 def make_report_tables(file, tables, trans):
     for i in tables:
+        # don't need nested tables storage in report
+        if tables[i]["nested"]:
+            continue
         file.add_link_anchor(i)
         file.add_header(tables[i]["name"], 2)
         file.write("{}: {}".format(trans.get_message(M_TABLE), tables[i]["name"]))

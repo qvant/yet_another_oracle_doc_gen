@@ -1,0 +1,1 @@
+create type string_list as table of varchar2(255);

@@ -15,5 +15,6 @@ grant create session to &&UNAME;
 grant create table to &&UNAME;
 grant create view to &&UNAME;
 grant create trigger to &&UNAME;
+grant create type to &&UNAME;
 grant select any dictionary to &&UNAME;
 
