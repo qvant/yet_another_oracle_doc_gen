@@ -64,7 +64,7 @@ def gather_tables(connect, user, available_views):
             table_type = M_TABLE_TYPE_TEMP
         tables[table_id] = {"name": table_name, "comment": table_comment, "columns": {}, "type": TYPE_TABLE,
                             "unique_indexes": [], "table_type": table_type, "partitioned": partitioned == 'Y',
-                            "triggers": []}
+                            "triggers": [], "indexes": []}
 
     sql_views = """select t.view_name, c.comments, t.owner
                       from all_views t
@@ -80,7 +80,7 @@ def gather_tables(connect, user, available_views):
     for table_name, table_comment, table_owner in cursor:
         table_id = get_table_id(table_owner, table_name)
         tables[table_id] = {"name": table_name, "comment": table_comment, "columns": {}, "type": TYPE_VIEW,
-                            "unique_indexes": [], "triggers": []}
+                            "unique_indexes": [], "triggers": [], "indexes": []}
 
     return tables
 
@@ -169,6 +169,49 @@ def gather_constraints(connect, user, available_views):
     return constraints
 
 
+def gather_indexes(connect, user, available_views):
+    indexes = {}
+    cursor = connect.cursor()
+    sql_indexes = """
+                    select i.table_owner, i.table_name, i.index_type, i.index_name, i.owner as index_owner
+                      from all_indexes i
+                     where i.table_owner = upper(:a)
+                       and i.table_name not like 'BIN$%'
+                     order by i.table_owner, i.table_name, i.index_name
+                    """
+    sql_indexes = replace_views(sql_indexes, available_views)
+    cursor.execute(sql_indexes, {'a': user})
+    for table_owner, table_name, index_type, index_name, index_owner in cursor:
+        indexes[index_name] = {"table": get_table_id(table_owner, table_name), "type": index_type,
+                               "columns": [], "columns_order": [], " owner": index_owner, "name": index_name}
+
+    sql_index_columns = """
+                        select i.table_owner, i.table_name, i.index_name, i.owner as index_owner, 
+                               c.column_name, c.descend, t.data_default
+                          from all_indexes i
+                          join all_ind_columns c
+                            on i.owner = c.index_owner
+                           and i.index_name = c.index_name
+                          left join all_tab_cols t
+                            on t.owner = i.table_owner
+                           and t.table_name = i.table_name
+                           and t.column_name = c.column_name
+                           and t.virtual_column = 'YES'
+                         where i.table_owner = upper(:a)
+                           and i.table_name not like 'BIN$%'
+                         order by i.table_owner, i.table_name, i.index_name, c.column_position
+                        """
+    sql_index_columns = replace_views(sql_index_columns, available_views)
+    cursor.execute(sql_index_columns, {'a': user})
+    for table_owner, table_name, index_name, index_owner, column_name, descend, data_default in cursor:
+        # get formula for functional indexes
+        if data_default is not None:
+            column_name = data_default
+        indexes[index_name]["columns"].append(column_name)
+        indexes[index_name]["columns_order"].append(descend)
+    return indexes
+
+
 def gather_triggers(connect, user, available_views):
 
     cursor = connect.cursor()
@@ -240,6 +283,13 @@ def process_triggers(tables, triggers):
     return tables
 
 
+def process_indexes(tables, indexes):
+    for i in indexes:
+        table_id = indexes[i]["table"]
+        tables[table_id]["indexes"].append(indexes[i])
+    return tables
+
+
 def make_report_header(file, tables, schema, trans, gen_user):
     file.init()
     file.add_header("{}: {}".format(trans.get_message(M_SCHEMA), schema))
@@ -302,10 +352,21 @@ def make_report_attr(file, attr, trans):
     file.close_table_row()
 
 
-def make_report_index(file, index):
+def make_report_unique_index(file, index):
     file.write(index["name"])
     file.new_line()
     file.add_list(index["columns"])
+
+
+def make_report_index(file, index):
+    arr_len = len(index["columns"])
+    if arr_len > 0:
+        file.write(index["name"])
+        file.new_line()
+        file.open_list()
+        for i in range(len(index["columns"])):
+            file.add_list_element("{0} {1}".format(index["columns"][i], index["columns_order"][i]))
+        file.close_list()
 
 
 def make_report_tables(file, tables, trans):
@@ -352,6 +413,13 @@ def make_report_tables(file, tables, trans):
             file.new_line()
             file.new_line()
             for j in tables[i]["unique_indexes"]:
+                make_report_unique_index(file, j)
+        if len(tables[i]["indexes"]) > 0:
+            file.new_line()
+            file.write("{}:".format(trans.get_message(M_INDEXES)))
+            file.new_line()
+            file.new_line()
+            for j in tables[i]["indexes"]:
                 make_report_index(file, j)
         make_report_triggers(file, tables[i]["triggers"], trans)
 
@@ -415,7 +483,8 @@ def make_report(tables, queues, run_stats, filename, schema, locale, gen_user, f
 
 def get_system_views(connect, use_dba):
     views_temp = ["all_tables", "all_tab_comments", "all_views", "all_tab_columns", "all_col_comments",
-                  "all_constraints", "all_cons_columns", "all_triggers", "all_queues"]
+                  "all_constraints", "all_cons_columns", "all_triggers", "all_queues", "all_indexes",
+                  "all_ind_columns"]
     views = {}
     dba_views = []
     for i in views_temp:
@@ -476,12 +545,14 @@ def main():
         schema_info = gather_tables(connect, target_user, db_views)
         schema_info = gather_attrs(connect, target_user, schema_info, db_views)
         schema_constraints = gather_constraints(connect, target_user, db_views)
+        schema_indexes = gather_indexes(connect, target_user, db_views)
         triggers_constraints = gather_triggers(connect, target_user, db_views)
         queues = gather_queues(connect, target_user, db_views)
         run_stats["end_gather"] = datetime.datetime.now()
         run_stats["start_process"] = datetime.datetime.now()
         schema_info = process_constraints(schema_info, schema_constraints)
         schema_info = process_triggers(schema_info, triggers_constraints)
+        schema_info = process_indexes(schema_info, schema_indexes)
     except cx_Oracle.DatabaseError as exc:
         error, = exc.args
         print("NLS_LANG: " + os.environ.get("NLS_LANG"))

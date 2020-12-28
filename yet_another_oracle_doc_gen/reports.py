@@ -110,3 +110,12 @@ class Report:
         for i in arr:
             self._add_list_element(self.file, i)
         self._close_list(self.file)
+
+    def open_list(self):
+        self._open_list(self.file)
+
+    def add_list_element(self, elem):
+        self._add_list_element(self.file, elem)
+
+    def close_list(self):
+        self._close_list(self.file)

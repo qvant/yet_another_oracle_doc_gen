@@ -13,6 +13,7 @@
    "COMMENT":"Comment",
    "EXEC_TIME":"Time report",
    "FALSE":"False",
+   "INDEXES":"Indexes",
    "IS_PARTITIONED":"Partitioned",
    "GENERATED_AS":"Generated as",
    "METADATA_GATHER_BEGIN":"Started gather metadata",

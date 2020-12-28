@@ -95,3 +95,45 @@ create table t_iot
 comment on table t_iot is 'Simple index organized table';
 comment on column t_iot.id is 'Unique id';
 comment on column t_iot.v_name is 'Record name';
+
+create table t_indexed_table
+(
+       id number,
+       dt_start timestamp with time zone not null,
+       dt_stop timestamp with time zone not null,
+       dict_id number not null,
+       b_deleted number(1) default 0 not null,
+       v_name varchar2(255),
+       constraint pk_t_indexed_table primary key (id),
+       constraint fk_ind_dict foreign key(dict_id) references t_dict(id),
+       constraint check_ind_del_flag check (b_deleted in (0, 1))
+);
+create index idx_t_indexed_table_v_name on t_indexed_table(v_name);
+comment on table t_indexed_table is 'Table with simple index';
+comment on column t_indexed_table.id is 'Unique id';
+comment on column t_indexed_table.dt_start is 'Timestamp of record start';
+comment on column t_indexed_table.dt_stop is 'Timestamp of record stop';
+comment on column t_indexed_table.dict_id is 'Reference to t_dict';
+comment on column t_indexed_table.b_deleted is 'Logical deletion flag';
+comment on column t_indexed_table.v_name is 'Indexed string field';
+
+create table t_func_indexed_table
+(
+       id number,
+       dt_start timestamp with time zone not null,
+       dt_stop timestamp with time zone not null,
+       dict_id number not null,
+       b_deleted number(1) default 0 not null,
+       v_name varchar2(255),
+       constraint pk_t_func_indexed_table primary key (id),
+       constraint fk_func_ind_dict foreign key(dict_id) references t_dict(id),
+       constraint check_func_ind_del_flag check (b_deleted in (0, 1))
+);
+create index idx_t_func_indexed_table_v_name on t_func_indexed_table(upper(v_name));
+comment on table t_func_indexed_table is 'Table with functional index';
+comment on column t_func_indexed_table.id is 'Unique id';
+comment on column t_func_indexed_table.dt_start is 'Timestamp of record start';
+comment on column t_func_indexed_table.dt_stop is 'Timestamp of record stop';
+comment on column t_func_indexed_table.dict_id is 'Reference to t_dict';
+comment on column t_func_indexed_table.b_deleted is 'Logical deletion flag';
+comment on column t_func_indexed_table.v_name is 'Indexed string field';
