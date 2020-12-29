@@ -31,7 +31,10 @@ def get_version(connect):
 
 
 def get_table_id(table_owner, table_name):
-    return table_owner + '.' + table_name
+    if table_name is not None:
+        return table_owner + '.' + table_name
+    else:
+        return ""
 
 
 def replace_views(sql, available_views):
@@ -90,12 +93,15 @@ def gather_attrs(connect, user, tables, available_views):
     sql_attrs = """
                     select t.owner, t.table_name, t.column_name, c.comments, t.owner, t.data_type, 
                         t.data_length, t.data_precision, t.data_scale, t.data_default, t.nullable, 
-                        t.char_length, t.char_used
+                        t.char_length, t.char_used, dt.owner as dt_owner, dt.type_name
                       from all_tab_columns t
                       left join all_col_comments c
                         on t.owner = c.owner
                        and t.table_name = c.table_name
                        and t.column_name = c.column_name
+                      left join all_types dt
+                        on dt.owner = t.data_type_owner
+                       and t.data_type = dt.type_name
                      where t.owner = upper(:a)
                      order by t.table_name, t.column_name
                     """
@@ -105,7 +111,7 @@ def gather_attrs(connect, user, tables, available_views):
     prev_table_id = None
     attrs = {}
     for owner, table_name, column_name, comments, owner, data_type, data_length, data_precision, data_scale, \
-            data_default, nullable, char_length, char_used in cursor:
+            data_default, nullable, char_length, char_used, dt_owner, type_name in cursor:
         table_id = get_table_id(owner, table_name)
         if prev_table_id is None:
             prev_table_id = table_id
@@ -127,7 +133,7 @@ def gather_attrs(connect, user, tables, available_views):
         attrs[column_name] = {"name": column_name, "type": data_type, "length": data_length,
                               "precision": data_precision, "scale": data_scale, "default": data_default,
                               "comment": comments, "primary_key": False, "nullable": nullable == 'Y',
-                              "length_semantics": length_semantics}
+                              "length_semantics": length_semantics, "type_id": get_table_id(dt_owner, type_name)}
     if prev_table_id is not None:
         tables[prev_table_id]["columns"].update(attrs)
     return tables
@@ -255,6 +261,45 @@ def gather_queues(connect, user, available_views):
     return queues
 
 
+def gather_types(connect, user, available_views):
+
+    cursor = connect.cursor()
+    sql_types = """
+                select t.owner, t.type_name, t.typecode
+                  from all_types t
+                  where t.owner = upper(:a)
+                 order by t.owner, t.type_name
+                """
+    sql_types = replace_views(sql_types, available_views)
+
+    cursor.execute(sql_types, {'a': user})
+    types = {}
+    for owner, type_name, type_code in cursor:
+        types[get_table_id(owner, type_name)] = {"name": type_name, "code": type_code,
+                                                 "type_id": get_table_id(owner, type_name),
+                                                 "is_array": False}
+
+    sql_types = """
+                    select t.owner, t.type_name, t.coll_type, t.upper_bound, t.elem_type_name, t.length, t.precision,
+                        t.scale
+                      from all_coll_types t
+                      where t.owner = upper(:a)
+                     order by t.owner, t.type_name
+                    """
+    sql_types = replace_views(sql_types, available_views)
+
+    cursor.execute(sql_types, {'a': user})
+    for owner, type_name, coll_type, upper_bound, elem_type_name, length, precision, scale in cursor:
+        types[get_table_id(owner, type_name)]["is_array"] = True
+        types[get_table_id(owner, type_name)]["array_type"] = coll_type
+        types[get_table_id(owner, type_name)]["array_size"] = upper_bound
+        types[get_table_id(owner, type_name)]["array_elem_type"] = elem_type_name
+        types[get_table_id(owner, type_name)]["array_elem_len"] = length
+        types[get_table_id(owner, type_name)]["array_elem_precision"] = precision
+        types[get_table_id(owner, type_name)]["array_elem_scale"] = scale
+    return types
+
+
 def process_constraints(tables, constraints):
     for i in constraints:
         table_id = constraints[i]["table"]
@@ -296,6 +341,8 @@ def make_report_header(file, tables, schema, trans, gen_user):
     file.add_header("{}: {}".format(trans.get_message(M_GENERATED_AS), gen_user))
     file.add_header("{}".format(trans.get_message(M_TABLES)))
     for i in tables:
+        if tables[i]["nested"]:
+            continue
         file.add_link(i, tables[i]["name"])
         file.new_line()
 
@@ -316,11 +363,20 @@ def make_report_footer(file, run_stats, trans):
 def make_report_attr(file, attr, trans):
     file.open_table_row()
     file.add_table_cell(attr["name"])
-    file.add_table_cell(attr["type"])
+    if len(attr["type_id"]) > 0:
+        file.open_table_cell()
+        file.add_link(attr["type_id"], attr["type"])
+        file.close_table_cell()
+    else:
+        file.add_table_cell(attr["type"])
     file.add_table_cell(str(attr["length"]))
     file.add_table_cell(str(attr["length_semantics"]))
     if attr["precision"] is not None:
         file.add_table_cell(str(attr["precision"]))
+    else:
+        file.add_table_cell('')
+    if attr["scale"] is not None:
+        file.add_table_cell(str(attr["scale"]))
     else:
         file.add_table_cell('')
     if attr["default"] is not None:
@@ -400,6 +456,7 @@ def make_report_tables(file, tables, trans):
         file.add_table_cell(trans.get_message(M_COLUMN_LENGTH))
         file.add_table_cell(trans.get_message(M_COLUMN_LENGTH_SEMANTICS))
         file.add_table_cell(trans.get_message(M_COLUMN_PRECISION))
+        file.add_table_cell(trans.get_message(M_COLUMN_SCALE))
         file.add_table_cell(trans.get_message(M_COLUMN_DEFAULT))
         file.add_table_cell(trans.get_message(M_COLUMN_PK))
         file.add_table_cell(trans.get_message(M_COLUMN_FK))
@@ -451,6 +508,37 @@ def make_report_queues(file, queues, trans):
     file.close_table()
 
 
+def make_report_types(file, types, trans):
+    if len(types) == 0:
+        return
+    file.add_header(trans.get_message(M_TYPES))
+
+    for i in types:
+        file.add_link_anchor(types[i]["type_id"])
+        file.add_header(types[i]["name"], 2)
+        file.write("{0}: {1}".format(trans.get_message(M_TYPE), types[i]["code"]))
+        file.new_line()
+        if types[i]["is_array"]:
+            file.write("{0}: {1}".format(trans.get_message(M_ARRAY_TYPE), types[i]["array_type"]))
+            file.new_line()
+            if types[i]["array_size"] is not None:
+                file.write("{0}: {1}".format(trans.get_message(M_ARRAY_SIZE), types[i]["array_size"]))
+            else:
+                file.write("{0}: {1}".format(trans.get_message(M_ARRAY_SIZE), trans.get_message(M_UNBOUNDED)))
+            file.new_line()
+            file.write("{0}: {1}".format(trans.get_message(M_COLUMN_TYPE), types[i]["array_elem_type"]))
+            file.new_line()
+            if types[i]["array_elem_len"] is not None:
+                file.write("{0}: {1}".format(trans.get_message(M_COLUMN_LENGTH), types[i]["array_elem_len"]))
+                file.new_line()
+            if types[i]["array_elem_precision"] is not None:
+                file.write("{0}: {1}".format(trans.get_message(M_COLUMN_PRECISION), types[i]["array_elem_precision"]))
+                file.new_line()
+            if types[i]["array_elem_scale"] is not None:
+                file.write("{0}: {1}".format(trans.get_message(M_COLUMN_SCALE), types[i]["array_elem_scale"]))
+                file.new_line()
+
+
 def make_report_triggers(file, triggers, trans):
     if len(triggers) > 0:
         file.new_line()
@@ -471,7 +559,7 @@ def make_report_triggers(file, triggers, trans):
         file.close_table()
 
 
-def make_report(tables, queues, run_stats, filename, schema, locale, gen_user, file_type):
+def make_report(tables, queues, types, run_stats, filename, schema, locale, gen_user, file_type):
     run_stats["start_report"] = datetime.datetime.now()
     translator = L18n()
     translator.set_locale(locale)
@@ -480,6 +568,7 @@ def make_report(tables, queues, run_stats, filename, schema, locale, gen_user, f
     make_report_header(report, tables, schema, translator, gen_user)
     make_report_tables(report, tables, translator)
     make_report_queues(report, queues, translator)
+    make_report_types(report, types, translator)
     make_report_footer(report, run_stats, translator)
     report.close()
 
@@ -487,7 +576,7 @@ def make_report(tables, queues, run_stats, filename, schema, locale, gen_user, f
 def get_system_views(connect, use_dba):
     views_temp = ["all_tables", "all_tab_comments", "all_views", "all_tab_columns", "all_col_comments",
                   "all_constraints", "all_cons_columns", "all_triggers", "all_queues", "all_indexes",
-                  "all_ind_columns"]
+                  "all_ind_columns", "all_types", "all_coll_types"]
     views = {}
     dba_views = []
     for i in views_temp:
@@ -551,6 +640,7 @@ def main():
         schema_indexes = gather_indexes(connect, target_user, db_views)
         triggers_constraints = gather_triggers(connect, target_user, db_views)
         queues = gather_queues(connect, target_user, db_views)
+        types = gather_types(connect, target_user, db_views)
         run_stats["end_gather"] = datetime.datetime.now()
         run_stats["start_process"] = datetime.datetime.now()
         schema_info = process_constraints(schema_info, schema_constraints)
@@ -563,7 +653,7 @@ def main():
         print(error.message)
         raise
     run_stats["end_process"] = datetime.datetime.now()
-    make_report(schema_info, queues, run_stats, args.file, target_user, locale, args.user, file_type)
+    make_report(schema_info, queues, types, run_stats, args.file, target_user, locale, args.user, file_type)
     if args.interactive:
         print('Job finished')
 

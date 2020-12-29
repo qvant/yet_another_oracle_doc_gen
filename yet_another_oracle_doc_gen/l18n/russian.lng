@@ -1,10 +1,13 @@
 {
+   "ARRAY_TYPE":"Тип коллекция",
+   "ARRAY_SIZE":"Максимальный размер",
    "COLUMNS":"Столбцы",
    "COLUMN_NAME":"Название",
    "COLUMN_TYPE":"Тип данных",
    "COLUMN_LENGTH":"Длина",
    "COLUMN_LENGTH_SEMANTICS":"Ед. изм.",
-   "COLUMN_PRECISION":"Точность",
+   "COLUMN_PRECISION":"Знаков до запятой",
+   "COLUMN_SCALE":"Знаков после запятой",
    "COLUMN_DEFAULT":"Значение по умолчанию",
    "COLUMN_PK":"Ключ",
    "COLUMN_FK":"Ссылается на",
@@ -40,5 +43,8 @@
    "TRIGGER_EVENT":"Уровень и время",
    "TRIGGERS":"Триггеры",
    "TRUE":"Да",
+   "TYPE":"Тип",
+   "TYPES":"Типы",
+   "UNBOUNDED":"Не ограничено",
    "UNIQUE_CONSTRAINTS":"Ограничения уникальности"
 }
