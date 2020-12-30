@@ -31,7 +31,7 @@ def get_version(connect):
 
 
 def get_table_id(table_owner, table_name):
-    if table_name is not None:
+    if table_name is not None and table_owner is not None:
         return table_owner + '.' + table_name
     else:
         return ""
@@ -277,7 +277,7 @@ def gather_types(connect, user, available_views):
     for owner, type_name, type_code in cursor:
         types[get_table_id(owner, type_name)] = {"name": type_name, "code": type_code,
                                                  "type_id": get_table_id(owner, type_name),
-                                                 "is_array": False}
+                                                 "is_array": False, "is_object": False, "attrs": [], "methods": []}
 
     sql_types = """
                     select t.owner, t.type_name, t.coll_type, t.upper_bound, t.elem_type_name, t.length, t.precision,
@@ -297,6 +297,39 @@ def gather_types(connect, user, available_views):
         types[get_table_id(owner, type_name)]["array_elem_len"] = length
         types[get_table_id(owner, type_name)]["array_elem_precision"] = precision
         types[get_table_id(owner, type_name)]["array_elem_scale"] = scale
+
+    sql_types = """
+                        select t.owner, t.type_name, t.attr_name, t.attr_type_owner, t.attr_type_mod, t.attr_type_name, 
+                            t.precision, t.scale, t.attr_no, t.length
+                          from all_type_attrs t
+                          where t.owner = upper(:a)
+                         order by t.owner, t.type_name, attr_no
+                        """
+    sql_types = replace_views(sql_types, available_views)
+
+    cursor.execute(sql_types, {'a': user})
+    for owner, type_name, attr_name, attr_type_owner, attr_type_mod, attr_type_name, precision, scale, \
+        attr_no, length in cursor:
+        types[get_table_id(owner, type_name)]["is_object"] = True
+        attr = {"precision": precision, "scale": scale, "attr_no": attr_no, "name": attr_name,
+                "type": attr_type_name, "type_id": get_table_id(attr_type_owner, attr_type_name), "length": length}
+        types[get_table_id(owner, type_name)]["attrs"].append(attr)
+
+    sql_types = """
+                        select t.owner, t.type_name, t.method_name, t.method_no
+                          from all_type_methods t
+                          where t.owner = upper(:a)
+                         order by t.owner, t.type_name, method_no
+                        """
+    sql_types = replace_views(sql_types, available_views)
+
+    cursor.execute(sql_types, {'a': user})
+
+    for owner, type_name, method_name, method_no in cursor:
+        types[get_table_id(owner, type_name)]["is_object"] = True
+        method = {"name": method_name, "scale": scale, "method_no": method_no}
+        types[get_table_id(owner, type_name)]["methods"].append(method)
+
     return types
 
 
@@ -335,16 +368,22 @@ def process_indexes(tables, indexes):
     return tables
 
 
-def make_report_header(file, tables, schema, trans, gen_user):
+def make_report_header(file, tables, types, schema, trans, gen_user):
     file.init()
     file.add_header("{}: {}".format(trans.get_message(M_SCHEMA), schema))
     file.add_header("{}: {}".format(trans.get_message(M_GENERATED_AS), gen_user))
-    file.add_header("{}".format(trans.get_message(M_TABLES)))
-    for i in tables:
-        if tables[i]["nested"]:
-            continue
-        file.add_link(i, tables[i]["name"])
-        file.new_line()
+    if len(tables) > 0:
+        file.add_header("{}".format(trans.get_message(M_TABLES)))
+        for i in tables:
+            if tables[i]["nested"]:
+                continue
+            file.add_link(i, tables[i]["name"])
+            file.new_line()
+    if len(types) > 0:
+        file.add_header("{}".format(trans.get_message(M_TYPES)))
+        for i in types:
+            file.add_link(i, types[i]["name"])
+            file.new_line()
 
 
 def make_report_footer(file, run_stats, trans):
@@ -537,6 +576,39 @@ def make_report_types(file, types, trans):
             if types[i]["array_elem_scale"] is not None:
                 file.write("{0}: {1}".format(trans.get_message(M_COLUMN_SCALE), types[i]["array_elem_scale"]))
                 file.new_line()
+        elif types[i]["is_object"]:
+            if len(types[i]["methods"]) > 0:
+                file.write(trans.get_message(M_METHODS))
+                file.open_list()
+                for m in types[i]["methods"]:
+                    file.add_list_element(m["name"])
+                file.close_list()
+            file.new_line()
+            file.add_table()
+            file.open_table_row()
+            file.add_table_cell(trans.get_message(M_ATTR_NAME))
+            file.add_table_cell(trans.get_message(M_COLUMN_TYPE))
+            file.add_table_cell(trans.get_message(M_COLUMN_LENGTH))
+            file.add_table_cell(trans.get_message(M_COLUMN_PRECISION))
+            file.add_table_cell(trans.get_message(M_COLUMN_SCALE))
+            file.close_table_row()
+            file.write(trans.get_message(M_ATTRS))
+            for attr in types[i]["attrs"]:
+                file.open_table_row()
+                file.add_table_cell(attr["name"])
+                if len(attr["type_id"]) > 0:
+                    file.open_table_cell()
+                    file.add_link(attr["type_id"], attr["type_id"])
+                    file.close_table_cell()
+                else:
+                    file.add_table_cell(attr["type"])
+                file.add_table_cell(attr["length"])
+                file.add_table_cell(attr["precision"])
+                file.add_table_cell(attr["scale"])
+            file.close_table()
+
+
+
 
 
 def make_report_triggers(file, triggers, trans):
@@ -565,7 +637,7 @@ def make_report(tables, queues, types, run_stats, filename, schema, locale, gen_
     translator.set_locale(locale)
     report = Report(file_type)
     report.set_file(filename)
-    make_report_header(report, tables, schema, translator, gen_user)
+    make_report_header(report, tables, types, schema, translator, gen_user)
     make_report_tables(report, tables, translator)
     make_report_queues(report, queues, translator)
     make_report_types(report, types, translator)
@@ -576,7 +648,7 @@ def make_report(tables, queues, types, run_stats, filename, schema, locale, gen_
 def get_system_views(connect, use_dba):
     views_temp = ["all_tables", "all_tab_comments", "all_views", "all_tab_columns", "all_col_comments",
                   "all_constraints", "all_cons_columns", "all_triggers", "all_queues", "all_indexes",
-                  "all_ind_columns", "all_types", "all_coll_types"]
+                  "all_ind_columns", "all_types", "all_coll_types", "all_type_attrs", "all_type_methods"]
     views = {}
     dba_views = []
     for i in views_temp:

@@ -1,6 +1,8 @@
 {
    "ARRAY_TYPE":"Тип коллекция",
    "ARRAY_SIZE":"Максимальный размер",
+   "ATTR_NAME":"Атрибут",
+   "ATTRS":"Атрибуты",
    "COLUMNS":"Столбцы",
    "COLUMN_NAME":"Название",
    "COLUMN_TYPE":"Тип данных",
@@ -23,6 +25,7 @@
    "METADATA_GATHER_END":"Окончание получения метаданных",
    "METADATA_PROCESS_BEGIN":"Начало обработки метаданных",
    "METADATA_PROCESS_END":"Окончание обработки метаданных",
+   "METHODS":"Методы",
    "QUEUE":"Очередь",
    "QUEUES":"Очереди AQ",
    "QUEUE_TYPE":"Тип очереди",
